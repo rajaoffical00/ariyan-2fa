@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aru 2FA</title>
+<style>
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+  }
+ .box {
+    background: #1e293b;
+    padding: 24px;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+  h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
+  input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 14px;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+  }
+  button {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    background: #3b82f6;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  button:hover { background: #2563eb; }
+ .code {
+    font-size: 36px;
+    letter-spacing: 4px;
+    font-weight: 700;
+    text-align: center;
+    margin: 16px 0 8px;
+    font-family: monospace;
+  }
+ .timer {
+    height: 6px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+ .bar { height: 100%; background: #22c55e; width: 100%; transition: width 1s linear; }
+ .muted { font-size: 12px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>Aru 2FA Generator</h1>
+    <input id="secret" placeholder="Secret key paste kor. Ex: JBSWY3DPEHPK3P">
+    <button onclick="start()">Code Generate Kor</button>
+    <div class="code" id="code">------</div>
+    <div class="timer"><div class="bar" id="bar"></div></div>
+    <div class="muted" id="time">30s</div>
+  </div>
+
+<script>
+const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32toBytes(base32) {
+  base32 = base32.replace(/=+$/, '').toUpperCase().replace(/ /g, '');
+  let bits = "", bytes = [];
+  for (let i = 0; i < base32.length; i++) {
+    let val = base32Chars.indexOf(base32[i]);
+    if (val === -1) continue;
+    bits += val.toString(2).padStart(5, '0');
+  }
+  for (let i = 0; i + 8 <= bits.length; i += 8)
+    bytes.push(parseInt(bits.substr(i, 8), 2));
+  return new Uint8Array(bytes);
+}
+
+async function totp(secret) {
+  const key = await crypto.subtle.importKey(
+    "raw", base32toBytes(secret), {name: "HMAC", hash: "SHA-1"}, false, ["sign"]
+  );
+  const time = Math.floor(Date.now() / 30000);
+  const buffer = new ArrayBuffer(8);
+  new DataView(buffer).setBigUint64(0, BigInt(time), false);
+  const hmac = new Uint8Array(await crypto.subtle.sign("HMAC", key, buffer));
+  const offset = hmac[hmac.length - 1] & 0xf;
+  const code = ((hmac[offset] & 0x7f) << 24) |
+               ((hmac[offset+1] & 0xff) << 16) |
+               ((hmac[offset+2] & 0xff) << 8) |
+               (hmac[offset+3] & 0xff);
+  return (code % 1000000).toString().padStart(6, '0');
+}
+
+let interval;
+async function start() {
+  const secret = document.getElementById('secret').value.trim();
+  if(!secret) return alert("Secret key de age Aru");
+  clearInterval(interval);
+  await update(secret);
+  interval = setInterval(() => update(secret), 1000);
+}
+
+async function update(secret) {
+  const code = await totp(secret);
+  const secs = 30 - Math.floor((Date.now() / 1000) % 30);
+  document.getElementById('code').textContent = code;
+  document.getElementById('bar').style.width = (secs/30*100) + '%';
+  document.getElementById('time').textContent = secs + 's';
+}
+</script>
+</body>
+</html>
